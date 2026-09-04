@@ -1,0 +1,22 @@
+# Darwin self-evolution log
+
+One line per change. Columns: date / commit / action / target / one-line reason.
+The full account lives in that commit's body. Read it with `git show <hash>`, not by default.
+Actions: new | adapt (fit to this machine) | fix | revert | scope (narrow) | retract (paragraph-level)
+
+2026-09-01  a1b2c3d  new     cards/zsh-log.md +1     zsh builtin `log` shadows /usr/bin/log; note plus index line
+2026-09-02  d4e5f6a  adapt   skills/deploy/SKILL.md  upstream assumes GNU coreutils, this host ships BSD versions
+2026-09-03  b7c8d9e  fix     cards/zsh-log.md        root cause said "permissions tightened", actually shell builtin shadowing
+2026-09-03  c9d0e1f  revert  skills/deploy/SKILL.md  undoes d4e5f6a: the BSD failure came from a stale PATH, not from coreutils
+2026-09-04  e2f3a4b  scope   cards/driver-cli.md     the empty-tree finding applies to Safari only; Chrome untested
+
+## Reading this log
+
+The `revert` on 2026-09-03 is the entry that earns the format. It records not just that the
+`adapt` was undone but why its evidence was wrong. Without that second half, the next agent
+hitting the same BSD-looking failure reaches the same false conclusion and makes the same edit.
+
+Counting `revert` and `fix` lines per file is the thrash check. Two reverts on one file, or
+three fixes with the problem still present, means the root cause has not been found yet.
+`adapt` lines do not count, because adapting upstream skills to a local machine is expected to
+happen repeatedly.
