@@ -1,230 +1,234 @@
 ![Darwin: Self-Evolution for Agents](assets/banner.png)
 
-# Darwin: self-evolving agent config with atomic rollback
+# Darwin
 
-Darwin lets a coding agent edit its own configuration (its skills, its knowledge files, its
-guidance documents) and makes every one of those edits a single revertable git commit. When the
-agent later discovers that one of its own rules is wrong, it can undo exactly that one change
-without touching anything else.
-
-There is no approval step. The safety comes from how cheap it is to undo a change, not from
-blocking it in advance.
+Darwin is a self-evolution mechanism that lets AI coding assistants safely modify their own
+configuration.
 
 ```bash
-darwin.sh fix skills/foo/SKILL.md "the --force flag it recommends eats arguments under zsh"
+darwin.sh fix knowledge/cards/foo.md "root cause was wrong, actually shell builtin shadowing"
 ```
 
-That command stages one file, writes one commit, appends one line to a log, and prints the hash.
-`git revert <hash>` reverses it and nothing else.
+The command stages only this one file, writes one commit, appends one line to the log, and
+prints the short hash. Running `git revert <hash>` reverses that specific change without
+touching unrelated files.
 
-## The problem this solves
+Safety does not come from pre-approval. It comes from low undo cost: every modification is an
+atomic commit that `git revert` can undo precisely. Darwin manages two categories of files, and
+both carry equal weight:
 
-Agent setups accumulate written rules: skill files, memory notes, instruction documents. Those
-rules go stale, and some are wrong the day they are written. An agent that notices a wrong rule
-has two bad options. It can leave the rule alone, in which case the same mistake repeats. Or it
-can edit the rule, in which case it might be acting on bad information and make things worse,
-with no record of what it changed or why.
+1. **Skills**: Workflow definitions that specify how to perform a task. An error in a skill
+   immediately alters agent behavior across every subsequent session.
+2. **Knowledge notes**: Records of facts and pitfalls that document what is true and what it
+   cost to find out. An error here causes silent misdirection without triggering any error
+   message.
 
-The research answer to this is a validation gate. In
-[WikiSkill](https://arxiv.org/abs/2608.27454) (Google Research, August 2026), a proposed skill
-edit is applied to a candidate skill set, evaluated on a held-out validation split, and accepted
-only if the score beats the previous best. Otherwise it is discarded and the skills roll back.
+## Why there is no validation gate
 
-That gate needs three things most people do not have on a personal machine: a repeatable task
-set, an automatic scorer, and enough runs for the score to mean something. Without them, an
-agent that rewrites its own rules is overfitting to whatever it saw last.
+In the Google Research WikiSkill paper (arXiv 2608.27454, August 2026), proposed skill
+modifications are applied to a candidate skill set, evaluated against a held-out validation
+split, and accepted only when the score exceeds the historical best. Otherwise, the change is
+discarded and rolled back. Across five benchmarks, that loop raised average accuracy from 49.5%
+to 68.1%.
 
-Darwin inverts the trade. Nothing blocks a change. Every change is one `git revert` away.
+Operating a validation gate requires three prerequisites: a repeatable task set, an automated
+scorer, and sufficient execution budget. Personal development environments lack all three.
+Darwin inverts the design: it does not intercept changes in advance, but keeps every
+modification exactly one `git revert` away.
 
-## How it works
+## Four-step workflow
+
+Every self-evolution change follows an explicit four-step sequence before touching files:
 
 ### 1. Blame the line
 
-Before editing, the agent finds out when the wrong claim entered the file:
+Gather two historical facts before modifying any file:
 
 ```bash
 git log -S'<the wrong sentence, verbatim>' --oneline -- <file>
 grep '<file>' DARWIN.md | tail -5
 ```
 
-The first command uses git's pickaxe search to find the commit that *introduced* that text, not
-the commit that last touched the line. The second checks whether this file has been reverted
-before.
+The pickaxe search (`-S`) locates the commit that introduced the text instead of the commit that
+last touched the line. The grep command checks whether the file was reverted in an earlier
+session. Modifying a file without knowing both facts risks repeating an error that was already
+diagnosed and undone.
 
 ### 2. Classify
 
-When the claim entered decides what to do about it:
+Blame output maps to one of five mutually exclusive actions:
 
-| What blame shows | Action | Why |
+| Blame result | Action | Policy |
 |---|---|---|
-| Introduced by one of the last few edits | `revert` | A recent edit was made on bad information |
-| Present since creation, environment changed | `scope` | It was right once. Add a version or date boundary |
-| Present since creation, wrong then too | `fix` | Correct the claim |
-| Upstream wording does not fit this machine | `adapt` | Local adaptation, expected to recur |
-| The log shows this was already reverted | stop | Someone tried this and undid it. Read why first |
+| Introduced by one of the last few edits | `revert` | The previous change relied on incorrect information |
+| Present since creation, environment changed | `scope` | Add a version or date boundary; preserve existing content |
+| Present since creation, wrong when written | `fix` | Correct the inaccurate claim |
+| Upstream wording does not fit this host | `adapt` | Adjust for local platform differences |
+| History shows this was previously reverted | Stop | Inspect the prior commit message before taking any action |
 
-That last row is the one idea Darwin takes directly from WikiSkill. In the paper, rejected
-proposals stay recorded in `skill-impact.md` so the proposer does not suggest them again. A
-failed experiment becomes knowledge instead of being forgotten and repeated.
+### 3. Act
 
-### 3. Edit
+Skills and knowledge notes demand different handling during this step:
 
-A wrong knowledge note gets a paragraph-level retraction rather than deletion. The symptom
-description stays, because the symptom is what makes the note findable later. Deleting the whole
-note hands back the chance to hit the same problem again.
+- **Skills require revert before direct edits.** A modified skill immediately alters agent
+  behavior across all future sessions. When a skill misbehaves, revert the introducing commit.
+  Edit a skill directly only when the entire procedure is fundamentally inapplicable to the
+  local environment.
+- **Knowledge notes receive paragraph-level retractions (`retract`).** Keep the file and keep
+  its entry in `INDEX.md`. Rewrite only the inaccurate paragraph: "previously claimed X, which
+  does not hold, because Y". The symptom description must remain intact because it serves as the
+  retrieval key. Deleting the entire note discards the record of the failure and guarantees that
+  future agents will encounter the same pitfall again.
 
-A wrong skill gets reverted in preference to being edited, because a skill changes agent
-behaviour immediately and across every future session.
+Symptoms represent direct observations and are almost always correct. Root causes represent
+inferences and constitute the portion that fails. A practical workaround often succeeds even
+when the attributed root cause is mistaken, allowing false diagnoses to persist undetected.
+Because an entire note is almost never completely wrong, edits should target only the root cause
+paragraph by default.
 
 ### 4. Log
 
-```bash
-darwin.sh <action> <file> [more files...] <one line explaining why>
-```
-
-Multiple files that form one logical change go in one call. Adding a knowledge note means a new
-note file plus a line in the index; splitting those across two commits would let a revert leave
-a dangling index entry.
-
-Long explanations go on stdin and land in the commit body, where they stay out of the way until
-someone runs `git show`.
-
-## What gets recorded
-
-`DARWIN.md` holds one line per change, and is meant to be grepped rather than read:
-
-```
-2026-09-04  a1b2c3d  fix     cards/zsh-log.md       root cause said "permissions", actually a shell builtin
-2026-09-04  d4e5f6a  revert  skills/bar/SKILL.md    undoes 9c8b7a: the error it relied on came from the sandbox
-2026-09-04  b7c8d9e  adapt   skills/baz/SKILL.md    upstream assumes GNU coreutils, this host has BSD
-```
-
-The commit body holds the full account, structured around four questions: what changed, what
-evidence it was based on, where the previous judgement went wrong, and how far the change
-reaches. For an `adapt` the fourth question becomes how to reapply the change after an upstream
-update overwrites it.
-
-The evidence line carries the weight. A skill can be broken by an edit made in good faith on
-false information, and the only way to tell that later is to have written down what the
-information was.
-
-## Install
+Record the modification through `darwin.sh`:
 
 ```bash
-git clone https://github.com/Anson-gzy/darwin.git
-cp darwin/darwin.sh ~/.agents/darwin.sh   # or wherever your agent config repo lives
-chmod +x ~/.agents/darwin.sh
+darwin.sh <action> <file> [more files...] <one-line-why>
 ```
 
-`darwin.sh` assumes your agent configuration is a git repository. It refuses to touch anything
-outside that repository root.
+Pass all files that belong to a single logical change in one invocation. For example, creating a
+knowledge note requires both the new note file and its corresponding line in `INDEX.md`.
+Committing them separately allows a subsequent revert of the note file to leave behind a
+dangling index reference.
 
-To make the procedure available to a Claude Code or compatible agent, copy `SKILL.md` into your
-skills directory. Then add a few lines to whatever guidance file your agent reads on every
-session, pointing at the skill:
-
-```markdown
-## Self-evolution
-
-Knowledge notes and skills can be corrected on the spot. Load the `darwin` skill before
-editing anything under the config repo. It gives the two facts to gather first, the
-classification table, and the command to finish with.
-```
-
-Keep that pointer short. The classification table only matters when something is actually being
-changed, so it belongs in the skill rather than in a file that loads on every turn.
-
-## The sync guardrail
-
-The failure mode that breaks all of this is a batch commit. If a script runs `git add -A` and
-sweeps an evolution edit into a commit alongside unrelated files, `git revert` on that commit
-takes the unrelated files with it, and the atomic undo is gone without any error appearing.
-
-`sync-guard.sh` shows the check to add to whatever script commits your config repo. It refuses
-to run while files under Darwin's governance have uncommitted changes, and names them:
-
-```
-sync: refusing to commit, 2 governed files have not gone through darwin.sh:
- M AGENTS.md
-?? cards/new-note.md
-```
-
-## Distributing an evolved skill
-
-An edited skill has to reach the agents that read it. Most setups keep a copy of each skill
-inside each agent's own directory, which means an evolution lands in one copy and the others
-drift away from it.
-
-`sync-skills.sh` keeps one library and links it everywhere:
+Detailed context can be piped through standard input:
 
 ```bash
-./sync-skills.sh                 # link every skill into each agent directory
-./sync-skills.sh --update        # pull upstream updates first, with a restore point
+cat << 'EOF' | darwin.sh fix knowledge/cards/foo.md "root cause was wrong, actually shell builtin shadowing"
+Investigation showed that /usr/bin/log remained accessible.
+The failure occurred because zsh defines a builtin named log.
+The previous note incorrectly blamed macOS permissions.
+EOF
 ```
 
-Links rather than copies, so an evolution takes effect in every agent at once and there is only
-ever one file to revert.
+Piped input enters the commit body, keeping the primary log compact while preserving full
+diagnostic context for future inspection.
 
-Two warnings are built into it, both learned the hard way.
+## What gets recorded in the log
 
-**Never use `skills add <a path inside your source directory> --global` to distribute.** The
-skills CLI counts the parent of your source directory as an agent directory too, so the install
-target resolves to the source itself. It clears the target before copying from the source, which
-means it empties the source, copies from the now empty source, and leaves an empty directory.
-One call destroys one skill and exits 0. This is what deleted 562 files in one run here.
+`DARWIN.md` maintains an append-only log with five columns per entry: date, commit hash, action,
+target path, and a one-line explanation.
 
-**Bulk upstream updates rewrite the whole tree and are not atomic.** The `--update` path commits
-a restore point first, then counts complete skills before and after and refuses to distribute if
-the count dropped or if more than twenty tracked files were deleted.
+```
+2026-09-01  a1b2c3d  new     cards/zsh.md +1   zsh builtin shadows /usr/bin/log; note and index line
+2026-09-02  d4e5f6a  adapt   skills/deploy.md  upstream assumes GNU coreutils, this host has BSD
+2026-09-03  b7c8d9e  fix     cards/zsh.md      root cause was shell builtin shadowing instead of permissions
+2026-09-03  c9d0e1f  revert  skills/deploy.md  undoes d4e5f6a: failure was a stale PATH instead of BSD tools
+2026-09-04  e2f3a4b  scope   cards/driver.md   empty-tree finding applies to Safari; Chrome untested
+```
 
-After distributing, the script re-checks that the source itself was not modified, because
-distribution should only ever create links. If something copied instead of linking, it says so
-and points at the recovery command.
+The one-line reason must answer a specific question depending on the action:
 
-The two sync scripts do different jobs. `sync-guard.sh` protects the atomic history on the way
-in. `sync-skills.sh` gets the result out to every agent.
+- `fix`: Identify what the original claim got wrong, preventing a later agent from reintroducing
+  the error.
+- `revert`: Name the undone commit hash and state why the original evidence was false. Recording
+  only that a commit was reverted invites the next agent to repeat the same edit using the same
+  misleading evidence.
+- `adapt`: State the concrete environment discrepancy that required the adjustment.
+- `scope`: Define the new boundary or condition.
+- `retract`: Identify which paragraph was withdrawn.
+
+Full narratives belong in the commit body, retrieved with `git show <hash>` only when
+specifically needed. Darwin adopts one specific mechanism from WikiSkill: rejected modifications
+remain permanently recorded in the log so that an identical mistake is not proposed again weeks
+later.
+
+## Knowledge notes subsystem
+
+The `knowledge/` directory stores structured records of hard-won facts and operational pitfalls.
+A flat index file (`knowledge/INDEX.md`) containing one summary line per note serves as the
+entire retrieval mechanism. There are no vector databases, no text embeddings, and no
+multi-stage retrieval workflows. The full index loads into the agent context at the start of
+each session. If an index line matches the current task, the agent opens that single file; if
+nothing matches, execution proceeds immediately without secondary search. Additional
+documentation lives in `knowledge/README.md`.
+
+## Skill distribution
+
+Different agent CLIs expect skills in separate directories. The `sync-skills.sh` script symlinks
+a single canonical skill repository into each agent location, ensuring that a modification takes
+effect everywhere simultaneously while keeping only one file to roll back. The script contains
+two safety checks: protecting against a package CLI that empties its source directory while
+exiting successfully, and safeguarding against non-atomic bulk upstream updates by verifying
+tree integrity against a pre-update checkpoint. Implementation details are documented in the
+script comments.
+
+## Protecting atomic history
+
+Standard configuration management scripts often use `git add -A` before pushing updates. That
+pattern breaks Darwin silently: an uncommitted evolution edit gets bundled into a batch commit
+alongside unrelated files. Later, running `git revert` on that commit forces the unrelated files
+to roll back as well.
+
+The `sync-guard.sh` script inspects governed paths before any batch commit runs. If changes
+exist in skills, guidance files, or knowledge notes that did not pass through `darwin.sh`, the
+script blocks the commit and lists the offending files.
 
 ## When to stop
 
-High edit frequency is safe as long as reversal stays cheap. The risk is a file that gets
-changed back and forth without converging.
+Editing frequently remains safe only when changes converge. Inspect the log for thrashing:
 
 ```bash
 grep -cE "  (revert|fix)  <file> " DARWIN.md
 ```
 
-Two reverts on one file, or three fixes with the problem still present, means the root cause has
-not been found. Editing again continues the loop. Stop and escalate to a human.
+If the log records two reverts on the same file, or three fixes while the issue persists, the
+root cause remains unidentified. Continuing to edit at that stage produces circular
+modifications. Stop and escalate the issue to a human operator.
 
-`adapt` does not count toward that. Most skills come from upstream repositories and need local
-adjustment repeatedly, which is the system working rather than thrashing.
+The `adapt` action does not count toward this threshold. Adapting upstream skills to local
+environment constraints is routine maintenance that occurs repeatedly.
 
-## Compared to other approaches
+## Installation
 
-| | Darwin | WikiSkill | Manual editing |
-|---|---|---|---|
-| Gate before a change takes effect | none | validation split score | human review |
-| Needs a scored task set | no | yes | no |
-| Undo granularity | one commit per change | whole skill set per iteration | whatever git history exists |
-| Record of rejected changes | `revert` lines in the log | `skill-impact.md` | none |
-| Runs unattended | yes | yes | no |
-| Evidence of improvement | none | five benchmarks | none |
+Clone the repository and install the helper script into your configuration repository:
 
-## Limits
+```bash
+git clone https://github.com/Anson-gzy/darwin.git
+cp darwin/darwin.sh ~/.agents/darwin.sh
+chmod +x ~/.agents/darwin.sh
+cp darwin/SKILL.md ~/.agents/skills/darwin/SKILL.md
+```
 
-Darwin has no measurement. It cannot tell you that your skills got better, only what changed and
-how to undo it. WikiSkill reports average accuracy going from 49.5% to 68.1% across five
-benchmarks; Darwin makes no comparable claim and cannot, because it never scores anything.
+Add a brief reference to whichever instruction file loads into context on every session:
 
-It also inherits the problem WikiSkill documents but does not solve. Skills evolved against one
-model can hurt another. The paper measures a case where skills from a smaller model drop a
-larger model's spreadsheet accuracy from 50.5% to 18.1%, because the smaller model's workarounds
-constrain the larger one. Nothing in Darwin detects that. Writing the applicability conditions
-into the rule itself is the only defence available here.
+```markdown
+## Self-evolution
 
-If you do have a repeatable scored task set, use a real gate instead. `srlabs/skillforge` is a
-reimplementation of the WikiSkill loop for Claude Code, and its README makes the point that
-matters: a weak scorer teaches the loop to produce agents that claim success.
+Knowledge notes and skills can be corrected on the spot. Load the `darwin` skill
+before editing anything in this configuration repository.
+```
+
+Keep this entry brief. Detailed classification criteria are necessary only when actively
+modifying files, and should not consume context window capacity during routine conversation
+turns.
+
+## Limitations
+
+Darwin performs no measurement. It documents what changed and provides an undo path, but cannot
+prove that configuration quality improved. While WikiSkill reported average accuracy moving from
+49.5% to 68.1% across five benchmarks, Darwin provides no comparable metrics because it never
+scores performance.
+
+Darwin also inherits an unresolved problem documented in the WikiSkill research: skills evolved
+against one model can degrade the performance of another. The paper measured a case where skills
+produced by a smaller model dropped a larger model's spreadsheet accuracy from 50.5% to 18.1%,
+because the smaller model's workarounds constrained the capabilities of the larger one. Darwin
+cannot detect cross-model degradation; the only available defense is documenting explicit
+applicability conditions directly within the rule text.
+
+Environments equipped with repeatable, scored task sets should deploy a genuine validation gate.
+The `srlabs/skillforge` project reimplements the WikiSkill evaluation loop for Claude Code, and
+its documentation highlights the primary hazard: a weak scorer teaches the self-evolution loop
+to produce agents that merely claim success.
 
 ## License
 
