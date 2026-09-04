@@ -147,6 +147,41 @@ sync: refusing to commit, 2 governed files have not gone through darwin.sh:
 ?? cards/new-note.md
 ```
 
+## Distributing an evolved skill
+
+An edited skill has to reach the agents that read it. Most setups keep a copy of each skill
+inside each agent's own directory, which means an evolution lands in one copy and the others
+drift away from it.
+
+`sync-skills.sh` keeps one library and links it everywhere:
+
+```bash
+./sync-skills.sh                 # link every skill into each agent directory
+./sync-skills.sh --update        # pull upstream updates first, with a restore point
+```
+
+Links rather than copies, so an evolution takes effect in every agent at once and there is only
+ever one file to revert.
+
+Two warnings are built into it, both learned the hard way.
+
+**Never use `skills add <a path inside your source directory> --global` to distribute.** The
+skills CLI counts the parent of your source directory as an agent directory too, so the install
+target resolves to the source itself. It clears the target before copying from the source, which
+means it empties the source, copies from the now empty source, and leaves an empty directory.
+One call destroys one skill and exits 0. This is what deleted 562 files in one run here.
+
+**Bulk upstream updates rewrite the whole tree and are not atomic.** The `--update` path commits
+a restore point first, then counts complete skills before and after and refuses to distribute if
+the count dropped or if more than twenty tracked files were deleted.
+
+After distributing, the script re-checks that the source itself was not modified, because
+distribution should only ever create links. If something copied instead of linking, it says so
+and points at the recovery command.
+
+The two sync scripts do different jobs. `sync-guard.sh` protects the atomic history on the way
+in. `sync-skills.sh` gets the result out to every agent.
+
 ## When to stop
 
 High edit frequency is safe as long as reversal stays cheap. The risk is a file that gets
