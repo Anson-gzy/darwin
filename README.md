@@ -1,3 +1,5 @@
+![Darwin: Self-Evolution for Agents](assets/banner.png)
+
 # Darwin: self-evolving agent config with atomic rollback
 
 Darwin lets a coding agent edit its own configuration (its skills, its knowledge files, its
