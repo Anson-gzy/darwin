@@ -1,0 +1,77 @@
+# Shared Agent Guidance (Constitution)
+
+This file serves as the unified guidance entrypoint across all AI coding agents (Claude Code,
+Codex, Antigravity, Cursor, Cline). It is maintained in your central configuration repository
+and distributed to each client's entrypoint via `sync-links.sh`.
+
+---
+
+## 1. Routine Lifecycle (Every Session)
+
+At the start and end of every task, execute these standard actions:
+
+1. **Knowledge Lookup**:
+   Inspect `knowledge/INDEX.md`. If an index line matches your task or error symptom, read only that
+   specific card. If no line matches, proceed immediately without secondary searches or vector scans.
+2. **Skill Discovery**:
+   Skills located in `skills/` are symlinked into your client environment. Use them whenever a task
+   aligns with their declared workflow.
+3. **Self-Evolution (The Silent Path)**:
+   Before concluding a session, check if any of the following three conditions occurred:
+   - **Bypassed Skill Steps**: If you had to bypass or modify a skill's documented workflow to succeed,
+     adapt it:
+     ```bash
+     darwin.sh adapt skills/<name>/SKILL.md "adapted for local platform/toolchain differences" < /dev/null
+     ```
+   - **Flawed or Outdated Guidance**: If a knowledge card or skill gave wrong or stale advice, run
+     `git log -S'<faulty sentence>' --oneline -- <file>` to determine its origin, then classify:
+     - Introduced recently on bad data -> `revert`
+     - Still valid but environment changed -> `scope` (add version/date bounds)
+     - Inaccurate root cause -> `retract` (keep symptom, rewrite root cause)
+     - Wrong when written -> `fix`
+     - If `grep '<file>' DARWIN.md` shows a prior revert -> **stop and ask the user**.
+   - **Hard-Won Discovery (>= 2 Attempts)**: If you resolved an issue only after multiple failed
+     attempts involving non-obvious facts, capture a new card and add one line to `knowledge/INDEX.md`:
+     ```bash
+     darwin.sh new knowledge/cards/<slug>.md knowledge/INDEX.md "concise explanation" < /dev/null
+     ```
+   All routine autonomous changes are recorded with `src=auto`.
+   > [!IMPORTANT]
+   > **The User-Authority Rule**: An agent must NEVER revert a change marked `src=user`.
+   > User instructions supersede autonomous judgment; only the human user may revoke them.
+
+4. **Session Wrap-Up**:
+   Commit completed project phases using standard git commands. Evolution commits must always
+   be committed separately via `darwin.sh`.
+
+---
+
+## 2. Knowledge Card Guidelines
+
+- **Anti-Fragmentation**: Before authoring a new card, run `grep -i <topic> knowledge/INDEX.md`.
+  Extend or update existing topic cards whenever possible rather than creating fragmented duplicates.
+- **Symptom Asymmetry**: Symptoms represent observations (almost always correct); root causes
+  represent inferences (prone to error). When correcting a card, use paragraph-level `retract` to
+  rewrite the root cause while preserving the symptom description (the retrieval key).
+- **Format**:
+  ```markdown
+  ---
+  title: <proposition or finding>
+  last_verified: <YYYY-MM-DD>
+  confidence: high|medium
+  ---
+
+  Symptom: <observed behavior or exact error text>
+  Root cause: <underlying mechanism>
+  Fix: <concrete commands or configuration changes>
+  Verify: <reproducible check confirming resolution>
+  ```
+
+---
+
+## 3. Universal Safety Red Lines
+
+- **No Secrets in Repositories**: API keys, credentials, private tokens, and internal network
+  identifiers must never be committed. Read secrets from environment variables or keychain stores.
+- **Autonomous Attribution**: Agent commits should be authored using an agent noreply identity
+  (e.g., `Agent <noreply@anthropic.com>` or `Agent <noreply@google.com>`), keeping human git identities clean.

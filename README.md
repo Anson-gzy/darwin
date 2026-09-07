@@ -192,13 +192,18 @@ secondary search.
 
 ---
 
-## Skill Distribution & Atomic History Protection
+## Multi-Client Distribution & Atomic History Protection
 
-### Symlink Distribution (`sync-skills.sh`)
-Different agent CLIs expect skills in separate directories (`~/.claude/skills`, `~/.codex/skills`,
-`~/.cursor/skills`, etc.). `sync-skills.sh` symlinks a single canonical skill repository into each
-agent location, ensuring that an evolved skill takes effect everywhere simultaneously while keeping
-only one file to roll back.
+### Automated Multi-Client Linking (`sync-links.sh`)
+Different AI coding assistants expect instructions and skills in disparate directories:
+- **Claude Code**: `~/.claude/CLAUDE.md`, `~/.claude/skills`
+- **OpenAI Codex**: `~/.codex/AGENTS.md`, `~/.codex/skills`
+- **Antigravity / Gemini CLI**: `~/.gemini/config/AGENTS.md`, `~/.gemini/config/skills`
+- **Cursor / Grok / Cline**: `~/.cursor/skills`, `~/.grok/skills`, `~/.cline/skills`
+
+`sync-links.sh` links your central `AGENTS.md` (or template from `AGENTS.md.example`) and your
+`skills/` repository to each supported client simultaneously. It automatically backs up existing
+non-symlink files, creates missing directories, and cleans up dead links.
 
 ### Protecting Atomic History (`sync-guard.sh`)
 Standard configuration sync scripts often run `git add -A` before pushing updates. That pattern
@@ -234,28 +239,40 @@ constraints is routine maintenance that occurs repeatedly.
 
 ---
 
-## Installation
+## Installation & Quickstart
 
-Clone the repository and install the helper script into your configuration repository:
+1. **Clone the repository and install core scripts into your agent configuration directory**:
 
-```bash
-git clone https://github.com/Anson-gzy/darwin.git
-cp darwin/darwin.sh ~/.agents/darwin.sh
-chmod +x ~/.agents/darwin.sh
-cp darwin/sync-guard.sh ~/.agents/sync-guard.sh
-chmod +x ~/.agents/sync-guard.sh
-cp darwin/SKILL.md ~/.agents/skills/darwin/SKILL.md
-```
+   ```bash
+   git clone https://github.com/Anson-gzy/darwin.git
+   mkdir -p ~/.agents/skills/darwin
 
-Add a concise self-evolution directive to whichever instruction file loads into context on every session:
+   cp darwin/darwin.sh ~/.agents/darwin.sh
+   chmod +x ~/.agents/darwin.sh
+   cp darwin/sync-guard.sh ~/.agents/sync-guard.sh
+   chmod +x ~/.agents/sync-guard.sh
+   cp darwin/sync-links.sh ~/.agents/sync-links.sh
+   chmod +x ~/.agents/sync-links.sh
+   cp darwin/SKILL.md ~/.agents/skills/darwin/SKILL.md
+   ```
 
-```markdown
-## Self-Evolution
+2. **Initialize your shared agent guidance (`AGENTS.md`)**:
 
-Knowledge notes and skills can be corrected on the spot.
-1. Silent Path: If an upstream skill had to be bypassed, adapt it; if a note was wrong, blame and retract/fix/revert; if a hard pitfall took >= 2 tries, write a note. Run `darwin.sh <action> <files...> <why> < /dev/null`.
-2. User-Directed: When the user points out a correction, run `darwin.sh --user <action> <files...> <why> < /dev/null`. Never revert a `src=user` change autonomously.
-```
+   ```bash
+   # Copy the production-ready guidance template
+   cp darwin/AGENTS.md.example ~/.agents/AGENTS.md
+   ```
+
+3. **Distribute to all agent clients with one command**:
+
+   ```bash
+   ~/.agents/sync-links.sh
+   ```
+
+   This automatically detects and symlinks `AGENTS.md` and `skills/` to Claude Code, Codex,
+   Antigravity/Gemini, Cursor, Grok, and Cline. Any future evolution committed via `darwin.sh`
+   instantly takes effect across every tool on your system.
+
 
 ---
 
