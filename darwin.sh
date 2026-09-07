@@ -1,16 +1,30 @@
 #!/bin/sh
 # darwin.sh: record one self-evolution change as an atomic, revertable commit.
 #
-#   darwin.sh <action> <file> [more-files...] <one-line-why>
+#   darwin.sh [--user] <action> <file> [more-files...] <one-line-why>
+#
+# --user marks this evolution as explicitly commanded by the human user.
+# It is recorded in the commit message subject ([src=user]) and in the 'src'
+# column of DARWIN.md.
+# Precedence: user commands override autonomous agent decisions. A subsequent
+# agent is strictly prohibited from reverting a 'user' change on its own;
+# only the user can revoke it. 'auto' changes can be autonomously evaluated
+# and reverted by agents according to Darwin classification criteria.
 #
 # Writes two commits: the change itself (the revert target), then the log line
 # in DARWIN.md that points at it. A longer account can be piped on stdin and
 # lands in the commit body.
 set -e
 
+SRC="auto"
+if [ "$1" = "--user" ]; then
+  SRC="user"
+  shift
+fi
+
 # Need at least an action, one file, and the one-line reason.
 if [ "$#" -lt 3 ]; then
-  echo "Usage: darwin.sh <action> <file> [more-files...] <one-line-why>" >&2
+  echo "Usage: darwin.sh [--user] <action> <file> [more-files...] <one-line-why>" >&2
   exit 1
 fi
 
@@ -115,7 +129,9 @@ if [ ! -t 0 ]; then
       STDIN_BODY=$(cat)
     fi
   else
-    STDIN_BODY=$(cat)
+    # stdin is neither a tty nor a pipe/regular file (common in non-interactive agent subshells).
+    # Calling cat here would block indefinitely, which is the primary operational mode for darwin.sh.
+    STDIN_BODY=""
   fi
 fi
 
@@ -126,11 +142,11 @@ if [ "$FILE_COUNT" -gt 1 ]; then
   ADDITIONAL_COUNT=$((FILE_COUNT - 1))
   TARGET_DESC="$FIRST_REL_TARGET (+$ADDITIONAL_COUNT)"
   TARGET_COL="$FIRST_REL_TARGET +$ADDITIONAL_COUNT"
-  COMMIT_MSG=$(printf "darwin(%s): %s\n\nfiles: %s\n%s" "$ACTION" "$TARGET_DESC" "$FILES_STR" "$WHY")
+  COMMIT_MSG=$(printf "darwin(%s): %s [src=%s]\n\nfiles: %s\n%s" "$ACTION" "$TARGET_DESC" "$SRC" "$FILES_STR" "$WHY")
 else
   TARGET_DESC="$FIRST_REL_TARGET"
   TARGET_COL="$FIRST_REL_TARGET"
-  COMMIT_MSG=$(printf "darwin(%s): %s\n\n%s" "$ACTION" "$TARGET_DESC" "$WHY")
+  COMMIT_MSG=$(printf "darwin(%s): %s [src=%s]\n\n%s" "$ACTION" "$TARGET_DESC" "$SRC" "$WHY")
 fi
 
 if [ -n "$STDIN_BODY" ]; then
@@ -146,7 +162,8 @@ if [ ! -f "DARWIN.md" ]; then
   cat > DARWIN.md << 'EOF'
 # Darwin self-evolution log
 
-One line per change. Columns: date / commit / action / target / one-line reason.
+One line per change. Columns: date / commit / src / action / target / one-line reason.
+src: user = explicitly commanded by the user (high weight, agent MUST NOT revert); auto = autonomous agent judgment.
 The full account lives in that commit's body. Read it with `git show <hash>`, not by default.
 Actions: new | adapt (fit to this machine) | fix | revert | scope (narrow) | retract (paragraph-level)
 
@@ -154,7 +171,7 @@ EOF
 fi
 
 TODAY=$(date +%Y-%m-%d)
-DARWIN_LINE=$(printf "%s  %s  %s  %s  %s" "$TODAY" "$SHORT_HASH" "$ACTION" "$TARGET_COL" "$WHY")
+DARWIN_LINE=$(printf "%s  %s  %-4s  %s  %s  %s" "$TODAY" "$SHORT_HASH" "$SRC" "$ACTION" "$TARGET_COL" "$WHY")
 printf "%s\n" "$DARWIN_LINE" >> DARWIN.md
 
 # Second commit: the log line only. Kept separate so the hash written above stays valid.
