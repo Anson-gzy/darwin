@@ -13,7 +13,7 @@ plus one line here.
 - **Refs** hold identifiers you cannot derive (machines, hosts, account and device ids). They
   belong in a private repository.
 - All three layers are maintained by the agent itself, one revertable commit per change. See
-  [Darwin](https://github.com/Anson-gzy/darwin).
+  [Darwin](../README.md).
 
 ## Notes
 
