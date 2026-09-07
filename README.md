@@ -239,7 +239,7 @@ constraints is routine maintenance that occurs repeatedly.
 Clone the repository and install the helper script into your configuration repository:
 
 ```bash
-git clone https://github.com/<your-username>/darwin.git
+git clone https://github.com/Anson-gzy/darwin.git
 cp darwin/darwin.sh ~/.agents/darwin.sh
 chmod +x ~/.agents/darwin.sh
 cp darwin/sync-guard.sh ~/.agents/sync-guard.sh
